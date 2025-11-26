@@ -1,0 +1,8 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+# Ansible
+*.retry
+# Secrets
+secrets.yml
