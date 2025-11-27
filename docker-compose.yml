@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+
+  frontend:
+    build: ./frontend
+    container_name: frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - auth-api
+      - todos-api
+      - users-api
+
+  auth-api:
+    build: ./auth-api
+    container_name: auth-api
+    ports:
+      - "8081:8000"
+    environment:
+      - REDIS_HOST=redis
+
+  todos-api:
+    build: ./todos-api
+    container_name: todos-api
+    ports:
+      - "8082:8001"
+    environment:
+      - REDIS_HOST=redis
+
+  users-api:
+    build: ./users-api
+    container_name: users-api
+    ports:
+      - "8083:8002"
+
+  log-message-processor:
+    build: ./log-message-processor
+    container_name: log-message-processor
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

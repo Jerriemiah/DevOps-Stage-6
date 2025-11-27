@@ -6,6 +6,8 @@ import requests
 from py_zipkin.zipkin import zipkin_span, ZipkinAttrs, generate_random_64bit_string
 import time
 import random
+import thriftpy2
+
 
 def log_message(message):
     time_delay = random.randrange(0, 2000)
