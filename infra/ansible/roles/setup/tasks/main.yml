@@ -43,14 +43,16 @@
     update_cache: yes
   when: docker_repo.changed
 
-- name: Install Docker engine
+- name: Install Docker engine (pinned 28.x)
   apt:
     name:
-      - docker-ce
-      - docker-ce-cli
+      - docker-ce=5:28.5.2-1~ubuntu.24.04~noble
+      - docker-ce-cli=5:28.0.4-1~ubuntu.24.04~noble
       - containerd.io
+      - docker-buildx-plugin
       - docker-compose-plugin
-    state: latest
+    state: present
+    update_cache: yes
 
 - name: Add ubuntu user to docker group
   user:
