@@ -23,7 +23,7 @@ services:
       - "traefik.http.routers.dashboard.service=api@internal"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./infra/traefik/traefik.yml:/traefik.yml:ro
+      - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./infra/traefik/letsencrypt:/letsencrypt
     networks:
       - app-network
