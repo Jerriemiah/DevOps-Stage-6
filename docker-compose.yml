@@ -51,7 +51,7 @@ services:
     container_name: auth-api
     environment:
       - REDIS_HOST=redis
-      - USERS_API_ADDRESS=http://users-api:8002
+      - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.auth.rule=Host(`auth.jerrie-todo.mooo.com`)"
