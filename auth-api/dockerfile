@@ -10,5 +10,5 @@ RUN go build -o auth-api .
 FROM alpine:latest
 WORKDIR /app
 COPY --from=build /app/auth-api .
-EXPOSE 8000
+EXPOSE 8081
 CMD ["./auth-api"]

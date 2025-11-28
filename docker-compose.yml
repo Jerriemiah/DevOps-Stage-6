@@ -1,6 +1,29 @@
 version: "3.9"
 
 services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+    ports:
+      - "80:80"
+      - "443:443"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.localhost`)"
+      - "traefik.http.routers.dashboard.service=api@internal"
+      - "traefik.http.routers.dashboard.entrypoints=websecure"
+      - "traefik.http.routers.dashboard.tls=true"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./infra/traefik/traefik.yml:/traefik.yml:ro
+      - ./infra/certs:/certs:ro
+    networks:
+      - app-network
 
   frontend:
     build: ./frontend
@@ -11,34 +34,76 @@ services:
       - auth-api
       - todos-api
       - users-api
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`frontend.localhost`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+    networks:
+      - app-network
 
   auth-api:
     build: ./auth-api
     container_name: auth-api
     ports:
-      - "8081:8000"
+      - "8081:8081"
     environment:
       - REDIS_HOST=redis
+      - AUTH_API_PORT=8081
+      -  USERS_API_ADDRESS=http://users-api:8083
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=Host(`auth.localhost`)"
+      - "traefik.http.routers.auth.entrypoints=websecure"
+      - "traefik.http.routers.auth.tls=true"
+      - "traefik.http.services.auth.loadbalancer.server.port=8081"
+    networks:
+      - app-network
 
   todos-api:
     build: ./todos-api
     container_name: todos-api
     ports:
-      - "8082:8001"
+      - "8082:8082"
     environment:
       - REDIS_HOST=redis
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.todos.rule=Host(`todos.localhost`)"
+      - "traefik.http.routers.todos.entrypoints=websecure"
+      - "traefik.http.routers.todos.tls=true"
+      - "traefik.http.services.todos.loadbalancer.server.port=8082"
+    networks:
+      - app-network
 
   users-api:
     build: ./users-api
     container_name: users-api
     ports:
-      - "8083:8002"
+      - "8083:8083"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.users.rule=Host(`users.localhost`)"
+      - "traefik.http.routers.users.entrypoints=websecure"
+      - "traefik.http.routers.users.tls=true"
+      - "traefik.http.services.users.loadbalancer.server.port=8083"
+    networks:
+      - app-network
 
   log-message-processor:
     build: ./log-message-processor
     container_name: log-message-processor
     depends_on:
       - redis
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.logs.rule=Host(`logs.localhost`)"
+      - "traefik.http.routers.logs.entrypoints=websecure"
+      - "traefik.http.routers.logs.tls=true"
+      - "traefik.http.services.logs.loadbalancer.server.port=5000"
+    networks:
+      - app-network
 
   redis:
     image: redis:7-alpine
@@ -47,6 +112,11 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
+    networks:
+      - app-network
 
 volumes:
   redis-data:
+
+networks:
+  app-network:
