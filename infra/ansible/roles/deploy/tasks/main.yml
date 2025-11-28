@@ -1,0 +1,38 @@
+---
+- name: Ensure application directory exists
+  file:
+    path: /opt/hng
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: '0755'
+
+- name: Clone project (first time)
+  git:
+    repo: "https://github.com/Jerriemiah/DevOps-Stage-6"
+    dest: /opt/hng
+    version: main
+    update: yes
+    force: yes
+  register: git_pull
+
+- name: Copy environment file if missing
+  copy:
+    src: env.example
+    dest: /opt/hng/.env
+    remote_src: no
+  when: git_pull.before is not defined  # only first clone
+
+- name: Rebuild & restart containers if repo changed
+  shell: |
+    docker compose pull
+    docker compose build --no-cache
+    docker compose up -d
+  args:
+    chdir: /opt/hng
+  when: git_pull.changed
+
+- name: Ensure docker compose is running (idempotent)
+  shell: docker compose up -d
+  args:
+    chdir: /opt/hng
