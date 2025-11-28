@@ -1,6 +1,7 @@
 ---
 - name: Setup server for Docker deployment
-  hosts: server
+  hosts: all
   become: yes
   roles:
     - setup
+    - deploy
