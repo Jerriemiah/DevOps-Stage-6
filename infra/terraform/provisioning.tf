@@ -31,7 +31,7 @@ resource "null_resource" "run_ansible" {
     # to write out the absolute path to avoid expansion issues. The script
     # is expected to create ../ansible/inventory with ansible_user and private key path.
     interpreter = ["/bin/bash", "-c"]
-    command = <<EOT
+    command     = <<EOT
 set -o pipefail
 echo "==> Running generate_inventory.sh (from infra/terraform)..."
 ./generate_inventory.sh
