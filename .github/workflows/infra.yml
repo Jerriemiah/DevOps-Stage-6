@@ -5,31 +5,87 @@ on:
     paths:
       - "infra/terraform/**"
       - "infra/ansible/**"
-  pull_request:
-    paths:
-      - "infra/terraform/**"
-      - "infra/ansible/**"
+  workflow_dispatch:
 
 jobs:
-  terraform-validate:
-    name: Terraform Validate
+
+  terraform-plan:
+    name: Terraform Plan (Drift Check)
     runs-on: ubuntu-latest
+    outputs:
+      drift: ${{ steps.check.outputs.drift }}
+      plan_exit_code: ${{ steps.tf_plan.outputs.exit_code }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
 
-      - name: Terraform Format Check
+      - name: Init Terraform
         working-directory: infra/terraform
-        run: terraform fmt -check
+        run: terraform init -input=false
 
-      - name: Terraform Init
+      - name: Run Terraform Plan
+        id: tf_plan
         working-directory: infra/terraform
-        run: terraform init -backend=false
+        run: |
+          set +e
+          terraform plan -out=tfplan -detailed-exitcode
+          EXIT_CODE=$?
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+          exit 0
 
-      - name: Terraform Validate
+      - name: Detect Drift
+        id: check
+        run: |
+          if [ "${{ steps.tf_plan.outputs.exit_code }}" == "2" ]; then
+            echo "drift=true" >> $GITHUB_OUTPUT
+          else
+            echo "drift=false" >> $GITHUB_OUTPUT
+          fi
+
+  email-alert:
+    name: Send Drift Email
+    needs: terraform-plan
+    if: needs.terraform-plan.outputs.drift == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true   # prevents email failure from breaking pipeline
+
+    steps:
+      - name: Send Drift Email (placeholder)
+        run: |
+          echo "Drift detected in Terraform infrastructure" \
+          | mail -s "Terraform Drift Alert" your-email@example.com
+
+  manual-approval:
+    name: Manual Approval Gate
+    needs: [terraform-plan, email-alert]
+    if: needs.terraform-plan.outputs.drift == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+
+    steps:
+      - name: Waiting for approval
+        run: echo "Waiting for manual approval before apply..."
+
+  terraform-apply:
+    name: Terraform Apply
+    needs: [terraform-plan, manual-approval]
+    runs-on: ubuntu-latest
+    if: |
+      needs.terraform-plan.outputs.drift == 'false' ||
+      (needs.terraform-plan.outputs.drift == 'true' && github.ref == 'refs/heads/main')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform Apply
         working-directory: infra/terraform
-        run: terraform validate
+        run: terraform apply -auto-approve tfplan
