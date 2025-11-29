@@ -13,3 +13,4 @@ variable "key_name" {
 variable "public_key_path" {
   description = "Path to your local public SSH key"
 }
+
