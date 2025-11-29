@@ -68,7 +68,7 @@
 
 - name: Create application directory
   file:
-    path: /opt/app
+    path: /opt/hng
     state: directory
     owner: ubuntu
     group: ubuntu
