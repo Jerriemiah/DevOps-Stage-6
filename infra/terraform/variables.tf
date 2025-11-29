@@ -10,9 +10,6 @@ variable "key_name" {
   description = "SSH key pair name for EC2"
 }
 
-variable "public_key" {
+variable "public_key_path" {
   type = string
-  description = "Public SSH key content"
 }
-
-# drift testing variable
