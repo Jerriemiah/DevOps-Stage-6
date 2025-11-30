@@ -12,7 +12,7 @@ jobs:
   terraform-plan:
     name: Terraform Plan (Drift Check)
     runs-on: ubuntu-latest
-    continue-on-error: true   # allow exit code 2 without failing the job
+    continue-on-error: true   # prevent exit 2 from failing the job
 
     outputs:
       drift: ${{ steps.check.outputs.drift }}
@@ -40,15 +40,19 @@ jobs:
         working-directory: infra/terraform
         run: terraform init -input=false
 
+      - name: Refresh Terraform State
+        working-directory: infra/terraform
+        run: terraform refresh -lock-timeout=300s
+
       - name: Run Terraform Plan
         id: tf_plan
         working-directory: infra/terraform
         run: |
           set +e
-          terraform plan -out=tfplan -detailed-exitcode
+          terraform plan -detailed-exitcode -lock-timeout=300s -out=tfplan
           exitcode=$?
           echo "exit_code=$exitcode" >> $GITHUB_OUTPUT
-          exit $exitcode
+          exit 0    # continue job no matter what
 
       - name: Detect Drift
         id: check
@@ -95,8 +99,9 @@ jobs:
 
       - name: Send Notification Email
         run: |
-          echo "🚨 Terraform Drift Detected in your HNG Stage 6 Environment." \
+          echo "🚨 Terraform Infrastructure Drift Detected in your HNG Stage 6 Environment." \
           | msmtp -a default ${{ secrets.ALERT_EMAIL }}
+
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -120,7 +125,7 @@ jobs:
     needs: [terraform-plan, manual-approval]
     runs-on: ubuntu-latest
 
-    # Auto-apply if no drift, but apply after approval when drift exists
+    # Auto-apply if no drift, or apply after approval if drift exists
     if: |
       needs.terraform-plan.outputs.drift == 'false' ||
       (needs.terraform-plan.outputs.drift == 'true' && github.ref == 'refs/heads/main')
@@ -128,21 +133,21 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-  
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
-  
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-  
+
       - name: Init Terraform
         working-directory: infra/terraform
         run: terraform init -input=false
-  
+
       - name: Terraform Apply
         working-directory: infra/terraform
         run: terraform apply -auto-approve tfplan
