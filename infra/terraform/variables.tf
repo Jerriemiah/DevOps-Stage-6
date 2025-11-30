@@ -6,8 +6,15 @@ variable "instance_type" {
   default = "t3.medium"
 }
 
+/*
 variable "key_name" {
   description = "SSH key pair name for EC2"
+}
+*/
+
+variable "key_name" {
+  description = "SSH key pair name for EC2"
+  type        = string
 }
 
 variable "public_key" {
