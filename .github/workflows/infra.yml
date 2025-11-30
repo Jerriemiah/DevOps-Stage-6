@@ -63,11 +63,39 @@ jobs:
     needs: terraform-plan
     if: needs.terraform-plan.outputs.drift == 'true'
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
-      - name: Notify User of Drift
-        run: echo "Terraform drift detected!"
+      - name: Send Drift Email via SMTP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y msmtp
+
+          cat <<EOF > ~/.msmtprc
+          defaults
+          auth           on
+          tls            on
+          tls_trust_file /etc/ssl/certs/ca-certificates.crt
+          logfile        ~/.msmtp.log
+
+          account        gmail
+          host           ${SMTP_HOST}
+          port           ${SMTP_PORT}
+          from           ${SMTP_USER}
+          user           ${SMTP_USER}
+          password       ${SMTP_PASS}
+
+          account default : gmail
+          EOF
+
+          chmod 600 ~/.msmtprc
+
+          echo "Terraform infrastructure drift detected in your environment." \
+          | msmtp your@gmail.com -s "Terraform Drift Alert"
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
 
   manual-approval:
     name: Manual Approval Gate
