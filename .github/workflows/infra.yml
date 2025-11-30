@@ -12,7 +12,7 @@ jobs:
   terraform-plan:
     name: Terraform Plan (Drift Check)
     runs-on: ubuntu-latest
-    continue-on-error: true   # allow exit code 2 without failing
+    continue-on-error: true
 
     outputs:
       drift: ${{ steps.check.outputs.drift }}
@@ -28,6 +28,8 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false   # IMPORTANT FIX
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -38,21 +40,21 @@ jobs:
 
       - name: Init Terraform
         working-directory: infra/terraform
-        run: /usr/local/bin/terraform init -input=false
+        run: terraform init -input=false
 
       - name: Refresh Terraform State
         working-directory: infra/terraform
-        run: /usr/local/bin/terraform refresh -lock-timeout=300s
+        run: terraform refresh -lock-timeout=300s
 
       - name: Run Terraform Plan
         id: tf_plan
         working-directory: infra/terraform
         run: |
           set +e
-          /usr/local/bin/terraform plan -detailed-exitcode -lock-timeout=300s -out=tfplan
+          terraform plan -detailed-exitcode -lock-timeout=300s -out=tfplan
           exitcode=$?
           echo "exit_code=$exitcode" >> $GITHUB_OUTPUT
-          exit 0   # do not fail even if exit code is 2
+          exit 0
 
       - name: Detect Drift
         id: check
@@ -94,6 +96,7 @@ jobs:
 
           account default : mailer
           EOF
+
           chmod 600 ~/.msmtprc
 
       - name: Send Notification Email
@@ -133,6 +136,8 @@ jobs:
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_wrapper: false
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -143,8 +148,8 @@ jobs:
 
       - name: Init Terraform
         working-directory: infra/terraform
-        run: /usr/local/bin/terraform init -input=false
+        run: terraform init -input=false
 
       - name: Terraform Apply
         working-directory: infra/terraform
-        run: /usr/local/bin/terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve tfplan
