@@ -12,7 +12,7 @@ jobs:
   terraform-plan:
     name: Terraform Plan (Drift Check)
     runs-on: ubuntu-latest
-    continue-on-error: true   # prevent exit 2 from failing the job
+    continue-on-error: true   # allow exit code 2 without failing
 
     outputs:
       drift: ${{ steps.check.outputs.drift }}
@@ -38,21 +38,21 @@ jobs:
 
       - name: Init Terraform
         working-directory: infra/terraform
-        run: terraform init -input=false
+        run: /usr/local/bin/terraform init -input=false
 
       - name: Refresh Terraform State
         working-directory: infra/terraform
-        run: terraform refresh -lock-timeout=300s
+        run: /usr/local/bin/terraform refresh -lock-timeout=300s
 
       - name: Run Terraform Plan
         id: tf_plan
         working-directory: infra/terraform
         run: |
           set +e
-          terraform plan -detailed-exitcode -lock-timeout=300s -out=tfplan
+          /usr/local/bin/terraform plan -detailed-exitcode -lock-timeout=300s -out=tfplan
           exitcode=$?
           echo "exit_code=$exitcode" >> $GITHUB_OUTPUT
-          exit 0    # continue job no matter what
+          exit 0   # do not fail even if exit code is 2
 
       - name: Detect Drift
         id: check
@@ -94,14 +94,12 @@ jobs:
 
           account default : mailer
           EOF
-
           chmod 600 ~/.msmtprc
 
       - name: Send Notification Email
         run: |
           echo "🚨 Terraform Infrastructure Drift Detected in your HNG Stage 6 Environment." \
           | msmtp -a default ${{ secrets.ALERT_EMAIL }}
-
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -125,7 +123,6 @@ jobs:
     needs: [terraform-plan, manual-approval]
     runs-on: ubuntu-latest
 
-    # Auto-apply if no drift, or apply after approval if drift exists
     if: |
       needs.terraform-plan.outputs.drift == 'false' ||
       (needs.terraform-plan.outputs.drift == 'true' && github.ref == 'refs/heads/main')
@@ -146,8 +143,8 @@ jobs:
 
       - name: Init Terraform
         working-directory: infra/terraform
-        run: terraform init -input=false
+        run: /usr/local/bin/terraform init -input=false
 
       - name: Terraform Apply
         working-directory: infra/terraform
-        run: terraform apply -auto-approve tfplan
+        run: /usr/local/bin/terraform apply -auto-approve tfplan
