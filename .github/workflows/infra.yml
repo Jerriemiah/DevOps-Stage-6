@@ -12,6 +12,7 @@ jobs:
   terraform-plan:
     name: Terraform Plan (Drift Check)
     runs-on: ubuntu-latest
+    continue-on-error: true   # allow exit code 2 without failing the job
 
     outputs:
       drift: ${{ steps.check.outputs.drift }}
@@ -47,7 +48,7 @@ jobs:
           terraform plan -out=tfplan -detailed-exitcode
           exitcode=$?
           echo "exit_code=$exitcode" >> $GITHUB_OUTPUT
-          exit 0
+          exit $exitcode
 
       - name: Detect Drift
         id: check
@@ -63,13 +64,16 @@ jobs:
     needs: terraform-plan
     if: needs.terraform-plan.outputs.drift == 'true'
     runs-on: ubuntu-latest
+    continue-on-error: true
 
     steps:
-      - name: Send Drift Email via SMTP
+      - name: Install msmtp
         run: |
           sudo apt-get update
           sudo apt-get install -y msmtp
 
+      - name: Configure msmtp
+        run: |
           cat <<EOF > ~/.msmtprc
           defaults
           auth           on
@@ -77,20 +81,22 @@ jobs:
           tls_trust_file /etc/ssl/certs/ca-certificates.crt
           logfile        ~/.msmtp.log
 
-          account        gmail
+          account        mailer
           host           ${SMTP_HOST}
           port           ${SMTP_PORT}
           from           ${SMTP_USER}
           user           ${SMTP_USER}
           password       ${SMTP_PASS}
 
-          account default : gmail
+          account default : mailer
           EOF
 
           chmod 600 ~/.msmtprc
 
-          echo "Terraform infrastructure drift detected in your environment." \
-          | msmtp your@gmail.com -s "Terraform Drift Alert"
+      - name: Send Notification Email
+        run: |
+          echo "🚨 Terraform Drift Detected in your HNG Stage 6 Environment." \
+          | msmtp -a default ${{ secrets.ALERT_EMAIL }}
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -107,16 +113,18 @@ jobs:
 
     steps:
       - name: Waiting for approval
-        run: echo "Waiting for manual approval…"
+        run: echo "⏳ Waiting for manual approval before Terraform Apply..."
 
   terraform-apply:
     name: Terraform Apply
     needs: [terraform-plan, manual-approval]
     runs-on: ubuntu-latest
+
+    # Auto-apply if no drift, but apply after approval when drift exists
     if: |
       needs.terraform-plan.outputs.drift == 'false' ||
       (needs.terraform-plan.outputs.drift == 'true' && github.ref == 'refs/heads/main')
-  
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
