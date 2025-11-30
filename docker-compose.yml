@@ -52,6 +52,10 @@ services:
     environment:
       - REDIS_HOST=redis
       - USERS_API_ADDRESS=http://users-api:8083
+      - AUTH_API_PORT=8081
+      - JWT_SECRET=myfancysecret
+      - REDIS_HOST=redis
+      - USERS_API_ADDRESS=http://users-api:8083
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.auth.rule=Host(`auth.jerrie-todo.mooo.com`)"
