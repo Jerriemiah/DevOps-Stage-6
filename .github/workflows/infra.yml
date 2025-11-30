@@ -12,7 +12,7 @@ jobs:
   terraform-plan:
     name: Terraform Plan (Drift Check)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    continue-on-error: true   # prevent exit 2 from failing the job
 
     outputs:
       drift: ${{ steps.check.outputs.drift }}
@@ -26,14 +26,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Terraform manually
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip
-          wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
-          unzip terraform_1.6.6_linux_amd64.zip
-          sudo mv terraform /usr/local/bin/
-          terraform -version
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -58,7 +52,7 @@ jobs:
           terraform plan -detailed-exitcode -lock-timeout=300s -out=tfplan
           exitcode=$?
           echo "exit_code=$exitcode" >> $GITHUB_OUTPUT
-          exit 0
+          exit 0    # continue job no matter what
 
       - name: Detect Drift
         id: check
@@ -107,6 +101,7 @@ jobs:
         run: |
           echo "🚨 Terraform Infrastructure Drift Detected in your HNG Stage 6 Environment." \
           | msmtp -a default ${{ secrets.ALERT_EMAIL }}
+
         env:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
@@ -130,6 +125,7 @@ jobs:
     needs: [terraform-plan, manual-approval]
     runs-on: ubuntu-latest
 
+    # Auto-apply if no drift, or apply after approval if drift exists
     if: |
       needs.terraform-plan.outputs.drift == 'false' ||
       (needs.terraform-plan.outputs.drift == 'true' && github.ref == 'refs/heads/main')
@@ -138,14 +134,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install Terraform manually
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip
-          wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
-          unzip terraform_1.6.6_linux_amd64.zip
-          sudo mv terraform /usr/local/bin/
-          terraform -version
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
