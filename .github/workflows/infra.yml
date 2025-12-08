@@ -207,13 +207,13 @@ jobs:
       - name: Install Ansible + deps
         run: |
           sudo apt update
-          sudo apt install -y ansible sshpass
+          sudo apt install -y ansible python3-boto3 python3-botocore sshpass
 
-      - name: Install SSH private key
+      - name: Install EC2 private key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/hng-key
+          chmod 600 ~/.ssh/hng-key
 
       - name: Disable host key checking
         run: |
@@ -227,11 +227,11 @@ jobs:
           ./generate_inventory.sh
 
       - name: Show generated inventory
+        working-directory: infra/ansible
         run: |
           echo "=== GENERATED INVENTORY ==="
-          cat infra/ansible/inventory
+          cat inventory
 
       - name: Run Ansible Playbook
         working-directory: infra/ansible
         run: ansible-playbook -i inventory playbook.yml
-
