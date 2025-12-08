@@ -46,14 +46,14 @@ jobs:
         working-directory: infra/terraform
         shell: bash
         run: |
-          set +e
+          set -e
 
           echo "DEBUG: starting Terraform Plan step"
 
           # First run: no state yet -> treat as "changes" so pipeline provisions infra
           if ! terraform state list >/dev/null 2>&1; then
             echo "DEBUG: no state found (first run)"
-            terraform plan -no-color -out=tfplan > plan.log 2>&1
+            terraform plan -no-color -out=tfplan > my_plan.log 2>&1
             PLAN_EXIT_CODE=$?
             echo "DEBUG: first-run terraform plan exit code = $PLAN_EXIT_CODE"
             if [ $PLAN_EXIT_CODE -ne 0 ]; then
@@ -64,7 +64,6 @@ jobs:
               exit 1
             fi
 
-            # First plan = provisioning -> treat as 'changes present, not destroy'
             echo "exit_code=2" >> "$GITHUB_OUTPUT"
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
             echo "is_destroy=false" >> "$GITHUB_OUTPUT"
@@ -75,7 +74,7 @@ jobs:
           echo "DEBUG: state exists, doing drift check"
 
           # Normal drift-check path (state already exists)
-          terraform plan -no-color -out=tfplan > plan.log 2>&1
+          terraform plan -no-color -out=tfplan > my_plan.log 2>&1
           EXIT_CODE=$?
           echo "DEBUG: terraform plan exit code = $EXIT_CODE"
 
@@ -87,17 +86,19 @@ jobs:
             exit 1
           fi
 
+          echo "DEBUG: summary line:"
+          grep "Plan:" my_plan.log || echo "DEBUG: NO Plan: line found"
+
           HAS_CHANGES="false"
           IS_DESTROY="false"
 
-          # Detect any add/change/destroy from the summary line
-          # e.g. Plan: 0 to add, 1 to change, 0 to destroy.
-          if grep -qE "Plan: [1-9][0-9]* to add|Plan: [1-9][0-9]* to change|Plan: [1-9][0-9]* to destroy" plan.log; then
+          # Any non-zero add/change/destroy => drift
+          if grep -qE "Plan: [1-9][0-9]* to add|Plan: [1-9][0-9]* to change|Plan: [1-9][0-9]* to destroy" my_plan.log; then
             HAS_CHANGES="true"
           fi
 
-          # Detect whether there is any destruction mentioned
-          if grep -q "to destroy" plan.log; then
+          # Mark if anything will be destroyed
+          if grep -q "to destroy" my_plan.log; then
             IS_DESTROY="true"
           fi
 
@@ -113,9 +114,7 @@ jobs:
 
           echo "DEBUG: final outputs: exit_code=$PLAN_EXIT_CODE, has_changes=$HAS_CHANGES, is_destroy=$IS_DESTROY"
 
-          cat plan.log
-
-          exit 0
+          cat my_plan.log
         continue-on-error: true
 
       - name: Upload tfplan artifact
@@ -130,7 +129,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: plan-log
-          path: infra/terraform/plan.log
+          path: infra/terraform/my_plan.log
 
   drift-notification:
     name: '🚨 Drift Alert'
