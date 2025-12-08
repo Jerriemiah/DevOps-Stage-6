@@ -48,35 +48,42 @@ jobs:
         run: |
           set +e
 
+          echo "DEBUG: starting Terraform Plan step"
+
           # First run: no state yet -> treat as "changes" so pipeline provisions infra
           if ! terraform state list >/dev/null 2>&1; then
-            echo "Detected empty state (first run). Running initial plan."
+            echo "DEBUG: no state found (first run)"
             terraform plan -no-color -out=tfplan > plan.log 2>&1
             PLAN_EXIT_CODE=$?
+            echo "DEBUG: first-run terraform plan exit code = $PLAN_EXIT_CODE"
             if [ $PLAN_EXIT_CODE -ne 0 ]; then
               echo "Terraform plan failed on first run."
-              echo "exit_code=1" >> $GITHUB_OUTPUT
-              echo "has_changes=false" >> $GITHUB_OUTPUT
-              echo "is_destroy=false" >> $GITHUB_OUTPUT
+              echo "exit_code=1" >> "$GITHUB_OUTPUT"
+              echo "has_changes=false" >> "$GITHUB_OUTPUT"
+              echo "is_destroy=false" >> "$GITHUB_OUTPUT"
               exit 1
             fi
 
             # First plan = provisioning -> treat as 'changes present, not destroy'
-            echo "exit_code=2" >> $GITHUB_OUTPUT
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "is_destroy=false" >> $GITHUB_OUTPUT
+            echo "exit_code=2" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+            echo "DEBUG: first-run outputs: exit_code=2, has_changes=true, is_destroy=false"
             exit 0
           fi
+
+          echo "DEBUG: state exists, doing drift check"
 
           # Normal drift-check path (state already exists)
           terraform plan -no-color -out=tfplan > plan.log 2>&1
           EXIT_CODE=$?
+          echo "DEBUG: terraform plan exit code = $EXIT_CODE"
 
           if [ $EXIT_CODE -ne 0 ]; then
             echo "Terraform plan failed with exit code $EXIT_CODE"
-            echo "exit_code=1" >> $GITHUB_OUTPUT
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "is_destroy=false" >> $GITHUB_OUTPUT
+            echo "exit_code=1" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "is_destroy=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -84,8 +91,7 @@ jobs:
           IS_DESTROY="false"
 
           # Detect any add/change/destroy from the summary line
-          # Example in plan.log:
-          #   Plan: 0 to add, 1 to change, 0 to destroy.
+          # e.g. Plan: 0 to add, 1 to change, 0 to destroy.
           if grep -qE "Plan: [1-9][0-9]* to add|Plan: [1-9][0-9]* to change|Plan: [1-9][0-9]* to destroy" plan.log; then
             HAS_CHANGES="true"
           fi
@@ -101,11 +107,12 @@ jobs:
             PLAN_EXIT_CODE=0
           fi
 
-          echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
-          echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
-          echo "is_destroy=$IS_DESTROY" >> $GITHUB_OUTPUT
+          echo "exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
+          echo "has_changes=$HAS_CHANGES" >> "$GITHUB_OUTPUT"
+          echo "is_destroy=$IS_DESTROY" >> "$GITHUB_OUTPUT"
 
-          echo "Plan outputs: exit_code=$PLAN_EXIT_CODE, has_changes=$HAS_CHANGES, is_destroy=$IS_DESTROY"
+          echo "DEBUG: final outputs: exit_code=$PLAN_EXIT_CODE, has_changes=$HAS_CHANGES, is_destroy=$IS_DESTROY"
+
           cat plan.log
 
           exit 0
