@@ -9,31 +9,171 @@ on:
 
 jobs:
   terraform-plan:
-    …
+    name: 'Terraform Plan (Drift Check)'
+    runs-on: ubuntu-latest
+
+    env:
+      TF_VAR_key_name: ${{ secrets.TF_VAR_KEY_NAME }}
+      TF_VAR_public_key: ${{ secrets.TF_VAR_PUBLIC_KEY }}
+
+    outputs:
+      plan_exit_code: ${{ steps.tf_plan.outputs.exit_code }}
+      has_changes: ${{ steps.tf_plan.outputs.has_changes }}
+      is_destroy: ${{ steps.tf_plan.outputs.is_destroy }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: infra/terraform
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        id: tf_plan
+        working-directory: infra/terraform
+        shell: bash
+        run: |
+          set -e
+          echo "DEBUG: starting Terraform Plan step"
+
+          if ! terraform state list >/dev/null 2>&1; then
+            echo "DEBUG: no state found (first run)"
+            terraform plan -no-color -out=tfplan > my_plan.log 2>&1
+            PLAN_EXIT_CODE=$?
+
+            if [ $PLAN_EXIT_CODE -ne 0 ]; then
+              echo "exit_code=1" >> "$GITHUB_OUTPUT"
+              echo "has_changes=false" >> "$GITHUB_OUTPUT"
+              echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+
+            echo "exit_code=2" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "DEBUG: state exists, doing drift check"
+
+          terraform plan -no-color -out=tfplan > my_plan.log 2>&1
+          EXIT_CODE=$?
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "exit_code=1" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          HAS_CHANGES="false"
+          IS_DESTROY="false"
+
+          if ! grep -q "Plan: 0 to add, 0 to change, 0 to destroy." my_plan.log; then
+            HAS_CHANGES="true"
+          fi
+
+          if grep -q "to destroy" my_plan.log && ! grep -q "0 to destroy" my_plan.log; then
+            IS_DESTROY="true"
+          fi
+
+          if [ "$HAS_CHANGES" = "true" ]; then PLAN_EXIT_CODE=2; else PLAN_EXIT_CODE=0; fi
+
+          echo "exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
+          echo "has_changes=$HAS_CHANGES" >> "$GITHUBOUTPUT"
+          echo "is_destroy=$IS_DESTROY" >> "$GITHUB_OUTPUT"
+
+          cat my_plan.log
+        continue-on-error: true
+
+      - name: Upload tfplan artifact
+        if: steps.tf_plan.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: infra/terraform/tfplan
+
+      - name: Upload plan.log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-log
+          path: infra/terraform/my_plan.log
 
   drift-notification:
-    …
+    name: '🚨 Drift Alert'
+    needs: terraform-plan
+    if: needs.terraform-plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Drift Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: '🚨 HNG Stage 6 - Terraform Drift Detected!'
+          to: ${{ secrets.ALERT_EMAIL }}
+          from: HNG DevOps <noreply@domain.com>
+          body: |
+            Drift Detected.
+            Exit Code: ${{ needs.terraform-plan.outputs.plan_exit_code }}
+            View run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   approval-gate:
-    …
+    name: '⏳ Manual Approval'
+    needs: [terraform-plan, drift-notification]
+    if: needs.terraform-plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Waiting for approval
+        run: echo "Waiting for approval..."
 
   terraform-apply:
-    name: "Terraform Apply"
+    name: 'Terraform Apply'
     needs: [terraform-plan, approval-gate]
     runs-on: ubuntu-latest
 
     if: |
-      needs.terraform-plan.outputs.plan_exit_code == '0' ||
-      needs.terraform-plan.outputs.plan_exit_code == '2'
+      needs.terraform-plan.outputs.has_changes == 'false' ||
+      (
+        needs.terraform-plan.outputs.has_changes == 'true' &&
+        needs.terraform-plan.outputs.is_destroy == 'false' &&
+        needs.approval-gate.result == 'success'
+      )
+
+    env:
+      TF_VAR_key_name: ${{ secrets.TF_VAR_KEY_NAME }}
+      TF_VAR_public_key: ${{ secrets.TF_VAR_PUBLIC_KEY }}
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-      - uses: hashicorp/setup-terraform@v2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.6.0
 
-      - uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -50,7 +190,7 @@ jobs:
           name: tfplan
           path: infra/terraform
 
-      - name: Apply Terraform
+      - name: Terraform Apply
         working-directory: infra/terraform
         run: |
           if [ "${{ needs.terraform-plan.outputs.has_changes }}" == "true" ]; then
@@ -59,30 +199,30 @@ jobs:
             terraform apply -auto-approve
           fi
 
-
   ansible-deploy:
     name: "🚀 Ansible Deploy"
-    runs-on: ubuntu-latest
     needs: terraform-apply
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-      - name: Install Ansible + boto3
+      - name: Install Ansible
         run: |
           sudo apt update
           sudo apt install -y ansible python3-boto3 python3-botocore sshpass
 
-      - name: Add SSH key
+      - name: Install EC2 SSH Key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      - name: Disable host key checking
+      - name: Disable Host Checking
         run: |
           echo "Host *" >> ~/.ssh/config
-          echo "    StrictHostKeyChecking no" >> ~/.ssh/config
+          echo "  StrictHostKeyChecking no" >> ~/.ssh/config
 
       - name: Run Ansible Playbook
         working-directory: infra/ansible
