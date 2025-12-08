@@ -8,6 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
+
   terraform-plan:
     name: 'Terraform Plan (Drift Check)'
     runs-on: ubuntu-latest
@@ -48,74 +49,40 @@ jobs:
         run: |
           set -e
 
-          echo "DEBUG: starting Terraform Plan step"
+          echo "DEBUG: start plan"
 
-          # First run: no state yet -> treat as "changes" so pipeline provisions infra
           if ! terraform state list >/dev/null 2>&1; then
-            echo "DEBUG: no state found (first run)"
             terraform plan -no-color -out=tfplan > my_plan.log 2>&1
-            PLAN_EXIT_CODE=$?
-            echo "DEBUG: first-run terraform plan exit code = $PLAN_EXIT_CODE"
-            if [ $PLAN_EXIT_CODE -ne 0 ]; then
-              echo "Terraform plan failed on first run."
-              echo "exit_code=1" >> "$GITHUB_OUTPUT"
-              echo "has_changes=false" >> "$GITHUB_OUTPUT"
-              echo "is_destroy=false" >> "$GITHUB_OUTPUT"
-              exit 1
-            fi
-
             echo "exit_code=2" >> "$GITHUB_OUTPUT"
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
             echo "is_destroy=false" >> "$GITHUB_OUTPUT"
-            echo "DEBUG: first-run outputs: exit_code=2, has_changes=true, is_destroy=false"
             exit 0
           fi
 
-          echo "DEBUG: state exists, doing drift check"
-
-          # Normal drift-check path (state already exists)
           terraform plan -no-color -out=tfplan > my_plan.log 2>&1
-          EXIT_CODE=$?
-          echo "DEBUG: terraform plan exit code = $EXIT_CODE"
+          PLAN=$?
 
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "Terraform plan failed with exit code $EXIT_CODE"
+          if [ $PLAN -ne 0 ]; then
             echo "exit_code=1" >> "$GITHUB_OUTPUT"
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo "is_destroy=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          echo "DEBUG: full summary line(s):"
-          grep "Plan:" my_plan.log || echo "DEBUG: NO Plan: line found"
-
-          HAS_CHANGES="false"
-          IS_DESTROY="false"
-
-          # If the plan is NOT exactly "0 to add, 0 to change, 0 to destroy." then we have drift
-          if ! grep -q "Plan: 0 to add, 0 to change, 0 to destroy." my_plan.log; then
-            HAS_CHANGES="true"
-          fi
-
-          # Mark if anything will be destroyed (any non-zero destroy)
-          if grep -q "to destroy" my_plan.log && ! grep -q "0 to destroy" my_plan.log; then
-            IS_DESTROY="true"
-          fi
-
-          if [ "$HAS_CHANGES" = "true" ]; then
-            PLAN_EXIT_CODE=2
+          if grep -q "Plan: 0 to add, 0 to change, 0 to destroy." my_plan.log; then
+            echo "exit_code=0" >> "$GITHUB_OUTPUT"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "is_destroy=false" >> "$GITHUB_OUTPUT"
           else
-            PLAN_EXIT_CODE=0
+            echo "exit_code=2" >> "$GITHUB_OUTPUT"
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+            if grep -q "to destroy" my_plan.log && ! grep -q "0 to destroy" my_plan.log; then
+              echo "is_destroy=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+            fi
           fi
-
-          echo "exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
-          echo "has_changes=$HAS_CHANGES" >> "$GITHUB_OUTPUT"
-          echo "is_destroy=$IS_DESTROY" >> "$GITHUB_OUTPUT"
-
-          echo "DEBUG: final outputs: exit_code=$PLAN_EXIT_CODE, has_changes=$HAS_CHANGES, is_destroy=$IS_DESTROY"
-
-          cat my_plan.log
-        continue-on-error: true
 
       - name: Upload tfplan artifact
         if: steps.tf_plan.outputs.has_changes == 'true'
@@ -124,12 +91,12 @@ jobs:
           name: tfplan
           path: infra/terraform/tfplan
 
-      - name: Upload plan.log (debug)
-        if: always()
+      - name: Upload plan.log
         uses: actions/upload-artifact@v4
         with:
           name: plan-log
           path: infra/terraform/my_plan.log
+
 
   drift-notification:
     name: '🚨 Drift Alert'
@@ -149,12 +116,13 @@ jobs:
           to: ${{ secrets.ALERT_EMAIL }}
           from: HNG DevOps <noreply@yourdomain.com>
           body: |
-            Terraform Plan detected infrastructure changes.
-            Exit Code: ${{ needs.terraform-plan.outputs.plan_exit_code }}
+            Terraform Plan detected infrastructure drift.
             Changes: ${{ needs.terraform-plan.outputs.has_changes }}
-            Manual approval required before apply.
-            View workflow:
+            Exit Code: ${{ needs.terraform-plan.outputs.plan_exit_code }}
+
+            Workflow: 
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
 
   approval-gate:
     name: '⏳ Manual Approval'
@@ -164,8 +132,9 @@ jobs:
     environment: production
 
     steps:
-      - name: Waiting for approval
-        run: echo "✅ Waiting for manual approval in 'production' environment..."
+      - name: Awaiting approval
+        run: echo "Waiting for production approval..."
+
 
   terraform-apply:
     name: 'Terraform Apply'
@@ -220,3 +189,33 @@ jobs:
           else
             terraform apply -auto-approve
           fi
+
+
+  ansible-deploy:
+    name: '🚀 Ansible Deploy'
+    needs: terraform-apply
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install Ansible
+        run: |
+          sudo apt update
+          sudo apt install -y ansible sshpass python3-boto3 python3-botocore
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Disable SSH Host Key Checking
+        run: |
+          echo -e "Host *\n StrictHostKeyChecking no" >> ~/.ssh/config
+
+      - name: Run Ansible Playbook
+        working-directory: infra/ansible
+        run: |
+          ansible-playbook -i inventory/aws_ec2.yml playbook.yml
