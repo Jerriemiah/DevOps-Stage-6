@@ -3,31 +3,33 @@ name: Infrastructure Pipeline
 on:
   push:
     paths:
-      - "infra/terraform/**"
-      - "infra/ansible/**"
+      - 'infra/terraform/**'
+      - 'infra/ansible/**'
   workflow_dispatch:
 
 jobs:
-
   terraform-plan:
-    name: Terraform Plan (Drift Check)
+    name: 'Terraform Plan (Drift Check)'
     runs-on: ubuntu-latest
-    continue-on-error: true   # prevent exit 2 from failing the job
+
+    # Pass TF variables from secrets
+    env:
+      TF_VAR_key_name: ${{ secrets.TF_VAR_KEY_NAME }}
+      TF_VAR_public_key: ${{ secrets.TF_VAR_PUBLIC_KEY }}
 
     outputs:
-      drift: ${{ steps.check.outputs.drift }}
       plan_exit_code: ${{ steps.tf_plan.outputs.exit_code }}
-
-    env:
-      TF_VAR_key_name: ${{ secrets.TF_VAR_key_name }}
-      TF_VAR_public_key: ${{ secrets.TF_VAR_public_key }}
+      has_changes: ${{ steps.tf_plan.outputs.has_changes }}
+      is_destroy: ${{ steps.tf_plan.outputs.is_destroy }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.0
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -36,106 +38,97 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Init Terraform
+      - name: Terraform Init
         working-directory: infra/terraform
         run: terraform init -input=false
 
-      - name: Refresh Terraform State
-        working-directory: infra/terraform
-        run: terraform refresh -lock-timeout=300s
-
-      - name: Run Terraform Plan
+      - name: Terraform Plan
         id: tf_plan
         working-directory: infra/terraform
         run: |
-          set +e
-          terraform plan -detailed-exitcode -lock-timeout=300s -out=tfplan
-          exitcode=$?
-          echo "exit_code=$exitcode" >> $GITHUB_OUTPUT
-          exit 0    # continue job no matter what
+          terraform plan -detailed-exitcode -no-color -out=tfplan 2>&1 | tee plan.log
+          EXIT_CODE=$?
 
-      - name: Detect Drift
-        id: check
-        run: |
-          if [ "${{ steps.tf_plan.outputs.exit_code }}" == "2" ]; then
-            echo "drift=true" >> $GITHUB_OUTPUT
+          # Detect drift types from plan output
+          if grep -q "No changes" plan.log; then
+            echo "exit_code=0" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "is_destroy=false" >> $GITHUB_OUTPUT
+          elif grep -qi "destroy" plan.log; then
+            echo "exit_code=1" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "is_destroy=true" >> $GITHUB_OUTPUT
           else
-            echo "drift=false" >> $GITHUB_OUTPUT
+            echo "exit_code=2" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "is_destroy=false" >> $GITHUB_OUTPUT
           fi
 
-  email-alert:
-    name: Send Drift Email
+          echo "Plan exit code (raw): $EXIT_CODE"
+        continue-on-error: true
+
+  drift-notification:
+    name: '🚨 Drift Alert'
     needs: terraform-plan
-    if: needs.terraform-plan.outputs.drift == 'true'
+    if: needs.terraform-plan.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
-      - name: Install msmtp
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y msmtp
+      - name: Send Drift Email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: '🚨 HNG Stage 6 - Terraform Drift Detected!'
+          to: ${{ secrets.ALERT_EMAIL }}
+          from: HNG DevOps <noreply@yourdomain.com>
+          body: |
+            Terraform Plan detected infrastructure changes.
 
-      - name: Configure msmtp
-        run: |
-          cat <<EOF > ~/.msmtprc
-          defaults
-          auth           on
-          tls            on
-          tls_trust_file /etc/ssl/certs/ca-certificates.crt
-          logfile        ~/.msmtp.log
+            Exit Code: ${{ needs.terraform-plan.outputs.plan_exit_code }}
+            Changes: ${{ needs.terraform-plan.outputs.has_changes }}
 
-          account        mailer
-          host           ${SMTP_HOST}
-          port           ${SMTP_PORT}
-          from           ${SMTP_USER}
-          user           ${SMTP_USER}
-          password       ${SMTP_PASS}
+            Manual approval required before apply.
 
-          account default : mailer
-          EOF
+            View workflow:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-          chmod 600 ~/.msmtprc
-
-      - name: Send Notification Email
-        run: |
-          echo "🚨 Terraform Infrastructure Drift Detected in your HNG Stage 6 Environment." \
-          | msmtp -a default ${{ secrets.ALERT_EMAIL }}
-
-        env:
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
-
-  manual-approval:
-    name: Manual Approval Gate
-    needs: [terraform-plan, email-alert]
-    if: needs.terraform-plan.outputs.drift == 'true'
+  approval-gate:
+    name: '⏳ Manual Approval'
+    needs: [terraform-plan, drift-notification]
+    if: needs.terraform-plan.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
-    environment:
-      name: production
+    environment: production
 
     steps:
       - name: Waiting for approval
-        run: echo "⏳ Waiting for manual approval before Terraform Apply..."
+        run: echo "✅ Waiting for manual approval in 'production' environment..."
 
   terraform-apply:
-    name: Terraform Apply
-    needs: [terraform-plan, manual-approval]
+    name: 'Terraform Apply'
+    needs: [terraform-plan, approval-gate]
     runs-on: ubuntu-latest
 
-    # Auto-apply if no drift, or apply after approval if drift exists
+    # Auto-apply if no drift; if drift, apply only after approval (and not a pure destroy)
     if: |
-      needs.terraform-plan.outputs.drift == 'false' ||
-      (needs.terraform-plan.outputs.drift == 'true' && github.ref == 'refs/heads/main')
+      needs.terraform-plan.outputs.has_changes == 'false' ||
+      (needs.terraform-plan.outputs.has_changes == 'true' &&
+       needs.terraform-plan.outputs.is_destroy == 'false')
+
+    env:
+      TF_VAR_key_name: ${{ secrets.TF_VAR_KEY_NAME }}
+      TF_VAR_public_key: ${{ secrets.TF_VAR_PUBLIC_KEY }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v3
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.0
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -144,7 +137,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Init Terraform
+      - name: Terraform Init
         working-directory: infra/terraform
         run: terraform init -input=false
 
