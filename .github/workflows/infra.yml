@@ -46,13 +46,10 @@ jobs:
         working-directory: infra/terraform
         run: |
           set -e
-
           # First run: no state yet -> bootstrap, not drift
           if ! terraform state list >/dev/null 2>&1; then
             echo "Detected empty state (first run). Running initial plan."
-
             terraform plan -no-color -out=tfplan 2>&1 | tee plan.log
-
             # Treat as baseline provisioning, not drift
             echo "exit_code=0" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -98,12 +95,9 @@ jobs:
           from: HNG DevOps <noreply@yourdomain.com>
           body: |
             Terraform Plan detected infrastructure changes.
-
             Exit Code: ${{ needs.terraform-plan.outputs.plan_exit_code }}
             Changes: ${{ needs.terraform-plan.outputs.has_changes }}
-
             Manual approval required before apply.
-
             View workflow:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
@@ -120,14 +114,17 @@ jobs:
 
   terraform-apply:
     name: 'Terraform Apply'
-    needs: [terraform-plan, approval-gate]
+    needs: terraform-plan
     runs-on: ubuntu-latest
 
     # Auto-apply if no drift; if drift, apply only after approval and not pure destroy
     if: |
       needs.terraform-plan.outputs.has_changes == 'false' ||
-      (needs.terraform-plan.outputs.has_changes == 'true' &&
-       needs.terraform-plan.outputs.is_destroy == 'false')
+      (
+        needs.terraform-plan.outputs.has_changes == 'true' &&
+        needs.terraform-plan.outputs.is_destroy == 'false' &&
+        needs.approval-gate.result == 'success'
+      )
 
     env:
       TF_VAR_key_name: ${{ secrets.TF_VAR_KEY_NAME }}
