@@ -230,8 +230,11 @@ jobs:
         working-directory: infra/ansible
         run: |
           echo "=== GENERATED INVENTORY ==="
+          ls -l
+          echo "---------------------------"
           cat inventory
 
       - name: Run Ansible Playbook
         working-directory: infra/ansible
         run: ansible-playbook -i inventory playbook.yml
+
