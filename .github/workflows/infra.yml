@@ -65,6 +65,7 @@ jobs:
             echo "exit_code=2" >> "$GITHUB_OUTPUT"
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
             echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+            echo "Plan outputs (first run): exit_code=2, has_changes=true, is_destroy=false"
             exit 0
           fi
 
@@ -77,6 +78,7 @@ jobs:
             echo "exit_code=0" >> "$GITHUB_OUTPUT"
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+            echo "Plan outputs: exit_code=0, has_changes=false, is_destroy=false"
             exit 0
           elif [ $EXIT_CODE -eq 2 ]; then
             # Changes present; inspect if it's a destroy-heavy plan
@@ -84,10 +86,12 @@ jobs:
               echo "exit_code=2" >> "$GITHUB_OUTPUT"
               echo "has_changes=true" >> "$GITHUB_OUTPUT"
               echo "is_destroy=true" >> "$GITHUB_OUTPUT"
+              echo "Plan outputs: exit_code=2, has_changes=true, is_destroy=true"
             else
               echo "exit_code=2" >> "$GITHUB_OUTPUT"
               echo "has_changes=true" >> "$GITHUB_OUTPUT"
               echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+              echo "Plan outputs: exit_code=2, has_changes=true, is_destroy=false"
             fi
             exit 0
           else
@@ -95,9 +99,15 @@ jobs:
             echo "exit_code=1" >> "$GITHUB_OUTPUT"
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+            echo "Plan outputs: exit_code=1, has_changes=false, is_destroy=false"
             exit 1
           fi
-        continue-on-error: true
+
+      - name: Show step outputs (debug)
+        run: |
+          echo "Step has_changes = '${{ steps.tf_plan.outputs.has_changes }}'"
+          echo "Step exit_code  = '${{ steps.tf_plan.outputs.exit_code }}'"
+          echo "Step is_destroy = '${{ steps.tf_plan.outputs.is_destroy }}'"
 
       - name: Upload tfplan artifact
         if: steps.tf_plan.outputs.has_changes == 'true'
