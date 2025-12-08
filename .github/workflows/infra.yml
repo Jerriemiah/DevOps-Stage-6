@@ -201,24 +201,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
 
-      - name: Install Ansible
+      - name: Install Ansible + deps
         run: |
           sudo apt update
-          sudo apt install -y ansible python3-boto3 python3-botocore sshpass
+          sudo apt install -y ansible sshpass
 
-      - name: Install EC2 Private Key
+      - name: Install SSH private key
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
 
-      - name: Disable SSH Host Checking
+      - name: Disable host key checking
         run: |
           echo "Host *" > ~/.ssh/config
           echo "  StrictHostKeyChecking no" >> ~/.ssh/config
 
+      - name: Generate inventory from Terraform outputs
+        working-directory: infra/terraform
+        run: |
+          chmod +x generate_inventory.sh
+          ./generate_inventory.sh
+
+      - name: Show generated inventory
+        run: |
+          echo "=== GENERATED INVENTORY ==="
+          cat infra/ansible/inventory
+
       - name: Run Ansible Playbook
         working-directory: infra/ansible
-        run: ansible-playbook -i inventory/aws_ec2.yml playbook.yml
+        run: ansible-playbook -i inventory playbook.yml
+
