@@ -56,6 +56,7 @@ EOT
 }
 */
 
+/*
 resource "null_resource" "generate_inventory" {
   triggers = {
     public_ip = aws_instance.app_server.public_ip
@@ -85,6 +86,177 @@ resource "null_resource" "run_ansible" {
     # stable trigger: only changes if inventory content changes
     inventory_hash = filesha256("${path.module}/../ansible/inventory")
     instance_id    = aws_instance.app_server.id
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -o pipefail
+echo "==> Running Ansible playbook..."
+ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ../ansible/inventory ../ansible/playbook.yml
+EOT
+  }
+
+  depends_on = [
+    null_resource.generate_inventory,
+    aws_instance.app_server,
+  ]
+
+  lifecycle {
+    create_before_destroy = false
+  }
+}
+*/
+/*
+resource "null_resource" "run_ansible" {
+  # Simple trigger: rerun Ansible when instance_id changes
+  triggers = {
+    instance_id = aws_instance.app_server.id
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -o pipefail
+echo "==> Running Ansible playbook..."
+ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ../ansible/inventory ../ansible/playbook.yml
+EOT
+  }
+
+  depends_on = [
+    null_resource.generate_inventory,
+    aws_instance.app_server,
+  ]
+
+  lifecycle {
+    create_before_destroy = false
+  }
+}
+*/
+
+/*
+  infra/terraform/provisioning.tf
+
+  Purpose:
+  - Trigger local inventory generation and Ansible playbook automatically after
+    the aws_instance.app_server is created.
+  - Use local-exec provisioners via null_resource with simple triggers.
+*/
+
+/*
+resource "null_resource" "run_ansible" {
+  # OLD VERSION – kept for reference
+  depends_on = [aws_instance.app_server]
+
+  triggers = {
+    instance_id = aws_instance.app_server.id
+    public_ip   = aws_instance.app_server.public_ip
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -o pipefail
+echo "==> Running generate_inventory.sh (from infra/terraform)..."
+./generate_inventory.sh
+if [ $? -ne 0 ]; then
+  echo "ERROR: generate_inventory.sh failed"
+  exit 1
+fi
+
+echo "==> Inventory created at infra/ansible/inventory:"
+ls -l ../ansible/inventory || true
+echo "==> Running Ansible playbook..."
+ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ../ansible/inventory ../ansible/playbook.yml
+EOT
+  }
+
+  lifecycle {
+    create_before_destroy = false
+  }
+}
+*/
+
+/*
+resource "null_resource" "generate_inventory" {
+  # OLD HASH VERSION – replaced below
+  triggers = {
+    public_ip = aws_instance.app_server.public_ip
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -o pipefail
+echo "==> Running generate_inventory.sh (from infra/terraform)..."
+./generate_inventory.sh
+if [ $? -ne 0 ]; then
+  echo "ERROR: generate_inventory.sh failed"
+  exit 1
+fi
+
+echo "==> Inventory created at infra/ansible/inventory:"
+ls -l ../ansible/inventory || true
+EOT
+  }
+
+  depends_on = [aws_instance.app_server]
+}
+
+resource "null_resource" "run_ansible" {
+  triggers = {
+    inventory_hash = filesha256("${path.module}/../ansible/inventory")
+    instance_id    = aws_instance.app_server.id
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -o pipefail
+echo "==> Running Ansible playbook..."
+ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ../ansible/inventory ../ansible/playbook.yml
+EOT
+  }
+
+  depends_on = [
+    null_resource.generate_inventory,
+    aws_instance.app_server,
+  ]
+
+  lifecycle {
+    create_before_destroy = false
+  }
+}
+*/
+
+resource "null_resource" "generate_inventory" {
+  triggers = {
+    public_ip = aws_instance.app_server.public_ip
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["/bin/bash", "-c"]
+    command     = <<EOT
+set -o pipefail
+echo "==> Running generate_inventory.sh (from infra/terraform)..."
+./generate_inventory.sh
+if [ $? -ne 0 ]; then
+  echo "ERROR: generate_inventory.sh failed"
+  exit 1
+fi
+
+echo "==> Inventory created at infra/ansible/inventory:"
+ls -l ../ansible/inventory || true
+EOT
+  }
+
+  depends_on = [aws_instance.app_server]
+}
+
+resource "null_resource" "run_ansible" {
+  # Simple trigger: rerun Ansible when instance_id changes
+  triggers = {
+    instance_id = aws_instance.app_server.id
   }
 
   provisioner "local-exec" {

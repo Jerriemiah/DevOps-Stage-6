@@ -1,3 +1,4 @@
+/*
 terraform {
   backend "s3" {
     bucket       = "hng-stage6-terraform-state"
@@ -8,3 +9,4 @@ terraform {
   }
 }
 # Drift detection test
+*/
