@@ -1,7 +1,14 @@
 resource "aws_key_pair" "hng_key" {
   key_name   = var.key_name
+  public_key = file(var.public_key_path)
+}
+
+/*
+resource "aws_key_pair" "hng_key" {
+  key_name   = var.key_name
   public_key = var.public_key
 }
+*/
 
 resource "aws_instance" "app_server" {
   ami                    = "ami-0009374626bb2af70" # Ubuntu 24.04 in us-east-1
