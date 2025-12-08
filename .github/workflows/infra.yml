@@ -118,6 +118,13 @@ jobs:
           name: tfplan
           path: infra/terraform/tfplan
 
+      - name: Upload plan.log (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: plan-log
+          path: infra/terraform/plan.log
+
   drift-notification:
     name: '🚨 Drift Alert'
     needs: terraform-plan
