@@ -84,7 +84,7 @@ jobs:
           IS_DESTROY="false"
 
           # Detect any add/change/destroy from the summary line
-          # Example you pasted:
+          # Example in plan.log:
           #   Plan: 0 to add, 1 to change, 0 to destroy.
           if grep -qE "Plan: [1-9][0-9]* to add|Plan: [1-9][0-9]* to change|Plan: [1-9][0-9]* to destroy" plan.log; then
             HAS_CHANGES="true"
