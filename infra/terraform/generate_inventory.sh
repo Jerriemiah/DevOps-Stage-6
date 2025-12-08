@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IP=$(terraform output -raw public_ip 2>/dev/null || echo "")
+# Force plain Terraform binary and strip GitHub wrapper noise
+IP=$(terraform output -raw public_ip 2>/dev/null | tr -d '\r' || echo "")
+
+# Keep only the first token that looks like an IP (strip any extra GitHub debug text)
+IP=$(echo "$IP" | awk 'NF{print $1; exit}')
 
 if [ -z "$IP" ]; then
   echo "ERROR: public_ip output is empty; cannot generate inventory"
