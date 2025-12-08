@@ -25,12 +25,10 @@ variable "key_name" {
 
 
 variable "public_key" {
-  type = string
+  type        = string
   description = "Public SSH key content"
 }
 
-
----
 /*
 variable "aws_region" {
   default = "us-east-1"
