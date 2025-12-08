@@ -55,73 +55,61 @@ jobs:
             PLAN_EXIT_CODE=$?
             if [ $PLAN_EXIT_CODE -ne 0 ]; then
               echo "Terraform plan failed on first run."
-              echo "exit_code=1" >> "$GITHUB_OUTPUT"
-              echo "has_changes=false" >> "$GITHUB_OUTPUT"
-              echo "is_destroy=false" >> "$GITHUB_OUTPUT"
+              echo "exit_code=1" >> $GITHUB_OUTPUT
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+              echo "is_destroy=false" >> $GITHUB_OUTPUT
               exit 1
             fi
 
             # First plan = provisioning -> treat as 'changes present, not destroy'
-            echo "exit_code=2" >> "$GITHUB_OUTPUT"
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-            echo "is_destroy=false" >> "$GITHUB_OUTPUT"
-            echo "Plan outputs (first run): exit_code=2, has_changes=true, is_destroy=false"
+            echo "exit_code=2" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "is_destroy=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # Normal drift-check path (state already exists)
-          # NOTE: -detailed-exitcode is unreliable in GitHub Actions, so rely on parsing output
           terraform plan -no-color -out=tfplan > plan.log 2>&1
           EXIT_CODE=$?
 
-          # Default values
-          HAS_CHANGES="false"
-          IS_DESTROY="false"
-
           if [ $EXIT_CODE -ne 0 ]; then
             echo "Terraform plan failed with exit code $EXIT_CODE"
-            echo "exit_code=1" >> "$GITHUB_OUTPUT"
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-            echo "is_destroy=false" >> "$GITHUB_OUTPUT"
-            echo "Plan outputs: exit_code=1, has_changes=false, is_destroy=false"
-            cat plan.log
+            echo "exit_code=1" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "is_destroy=false" >> $GITHUB_OUTPUT
             exit 1
           fi
 
-          # Detect any add/change/destroy from plan output line like:
-          # Plan: 0 to add, 1 to change, 0 to destroy.
+          HAS_CHANGES="false"
+          IS_DESTROY="false"
+
+          # Detect any add/change/destroy from the summary line
+          # Example you pasted:
+          #   Plan: 0 to add, 1 to change, 0 to destroy.
           if grep -qE "Plan: [1-9][0-9]* to add|Plan: [1-9][0-9]* to change|Plan: [1-9][0-9]* to destroy" plan.log; then
             HAS_CHANGES="true"
           fi
 
-          # Detect whether there is any destruction
+          # Detect whether there is any destruction mentioned
           if grep -q "to destroy" plan.log; then
-            # This only marks that there is at least some destroy in the plan
             IS_DESTROY="true"
           fi
 
-          # For compatibility with your other jobs, keep exit_code semantics:
-          # 0 = no changes, 2 = changes present, 1 = error
           if [ "$HAS_CHANGES" = "true" ]; then
             PLAN_EXIT_CODE=2
           else
             PLAN_EXIT_CODE=0
           fi
 
-          echo "exit_code=$PLAN_EXIT_CODE" >> "$GITHUB_OUTPUT"
-          echo "has_changes=$HAS_CHANGES" >> "$GITHUB_OUTPUT"
-          echo "is_destroy=$IS_DESTROY" >> "$GITHUB_OUTPUT"
+          echo "exit_code=$PLAN_EXIT_CODE" >> $GITHUB_OUTPUT
+          echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+          echo "is_destroy=$IS_DESTROY" >> $GITHUB_OUTPUT
 
           echo "Plan outputs: exit_code=$PLAN_EXIT_CODE, has_changes=$HAS_CHANGES, is_destroy=$IS_DESTROY"
           cat plan.log
 
           exit 0
-
-      - name: Show step outputs (debug)
-        run: |
-          echo "Step has_changes = '${{ steps.tf_plan.outputs.has_changes }}'"
-          echo "Step exit_code  = '${{ steps.tf_plan.outputs.exit_code }}'"
-          echo "Step is_destroy = '${{ steps.tf_plan.outputs.is_destroy }}'"
+        continue-on-error: true
 
       - name: Upload tfplan artifact
         if: steps.tf_plan.outputs.has_changes == 'true'
@@ -216,7 +204,4 @@ jobs:
         shell: bash
         run: |
           if [ "${{ needs.terraform-plan.outputs.has_changes }}" == "true" ]; then
-            terraform apply -auto-approve tfplan
-          else
             terraform apply -auto-approve
-          fi
