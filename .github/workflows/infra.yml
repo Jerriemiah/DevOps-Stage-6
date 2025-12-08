@@ -45,25 +45,25 @@ jobs:
         id: tf_plan
         working-directory: infra/terraform
         run: |
-          # Detect if state is empty (first run vs drift)
-          if terraform state list >/dev/null 2>&1; then
-            STATE_EMPTY=false
-          else
-            STATE_EMPTY=true
-          fi
+          set -e
 
-          terraform plan -detailed-exitcode -no-color -out=tfplan 2>&1 | tee plan.log
-          EXIT_CODE=$?
+          # First run: no state yet -> bootstrap, not drift
+          if ! terraform state list >/dev/null 2>&1; then
+            echo "Detected empty state (first run). Running initial plan."
 
-          # Initial provisioning: empty state -> treat as non-drift
-          if [ "$STATE_EMPTY" = "true" ]; then
-            echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+            terraform plan -no-color -out=tfplan 2>&1 | tee plan.log
+
+            # Treat as baseline provisioning, not drift
+            echo "exit_code=0" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "is_destroy=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # Existing state: detect drift types from plan output
+          # Normal drift-check path (state already exists)
+          terraform plan -detailed-exitcode -no-color -out=tfplan 2>&1 | tee plan.log
+          EXIT_CODE=$?
+
           if grep -q "No changes" plan.log; then
             echo "exit_code=0" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -77,8 +77,6 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "is_destroy=false" >> $GITHUB_OUTPUT
           fi
-
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
         continue-on-error: true
 
   drift-notification:
