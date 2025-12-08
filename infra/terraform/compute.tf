@@ -18,7 +18,7 @@ resource "aws_instance" "app_server" {
   key_name               = aws_key_pair.hng_key.key_name
 
   tags = {
-    Name = "HNG-Stage6-Server-new"
+    Name = "HNG-Stage6-Server"
   }
 
   root_block_device {
