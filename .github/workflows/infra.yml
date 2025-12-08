@@ -204,6 +204,22 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Terraform Init (read remote state)
+        working-directory: infra/terraform
+        run: terraform init -input=false
+
       - name: Install Ansible + deps
         run: |
           sudo apt update
@@ -230,8 +246,6 @@ jobs:
         working-directory: infra/ansible
         run: |
           echo "=== GENERATED INVENTORY ==="
-          ls -l
-          echo "---------------------------"
           cat inventory
 
       - name: Run Ansible Playbook
