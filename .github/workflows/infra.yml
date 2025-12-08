@@ -86,19 +86,19 @@ jobs:
             exit 1
           fi
 
-          echo "DEBUG: summary line:"
+          echo "DEBUG: full summary line(s):"
           grep "Plan:" my_plan.log || echo "DEBUG: NO Plan: line found"
 
           HAS_CHANGES="false"
           IS_DESTROY="false"
 
-          # Any non-zero add/change/destroy => drift
-          if grep -qE "Plan: [1-9][0-9]* to add|Plan: [1-9][0-9]* to change|Plan: [1-9][0-9]* to destroy" my_plan.log; then
+          # If the plan is NOT exactly "0 to add, 0 to change, 0 to destroy." then we have drift
+          if ! grep -q "Plan: 0 to add, 0 to change, 0 to destroy." my_plan.log; then
             HAS_CHANGES="true"
           fi
 
-          # Mark if anything will be destroyed
-          if grep -q "to destroy" my_plan.log; then
+          # Mark if anything will be destroyed (any non-zero destroy)
+          if grep -q "to destroy" my_plan.log && ! grep -q "0 to destroy" my_plan.log; then
             IS_DESTROY="true"
           fi
 
@@ -172,7 +172,6 @@ jobs:
     needs: [terraform-plan, approval-gate]
     runs-on: ubuntu-latest
 
-    # Auto-apply if no drift; if drift, apply only after approval and not pure destroy
     if: |
       needs.terraform-plan.outputs.has_changes == 'false' ||
       (
