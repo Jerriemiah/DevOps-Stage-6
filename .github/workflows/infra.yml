@@ -204,4 +204,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ needs.terraform-plan.outputs.has_changes }}" == "true" ]; then
+            terraform apply -auto-approve tfplan
+          else
             terraform apply -auto-approve
+          fi
