@@ -12,7 +12,6 @@ jobs:
     name: 'Terraform Plan (Drift Check)'
     runs-on: ubuntu-latest
 
-    # Pass TF variables from secrets
     env:
       TF_VAR_key_name: ${{ secrets.TF_VAR_KEY_NAME }}
       TF_VAR_public_key: ${{ secrets.TF_VAR_PUBLIC_KEY }}
@@ -46,10 +45,25 @@ jobs:
         id: tf_plan
         working-directory: infra/terraform
         run: |
+          # Detect if state is empty (first run vs drift)
+          if terraform state list >/dev/null 2>&1; then
+            STATE_EMPTY=false
+          else
+            STATE_EMPTY=true
+          fi
+
           terraform plan -detailed-exitcode -no-color -out=tfplan 2>&1 | tee plan.log
           EXIT_CODE=$?
 
-          # Detect drift types from plan output
+          # Initial provisioning: empty state -> treat as non-drift
+          if [ "$STATE_EMPTY" = "true" ]; then
+            echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "is_destroy=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Existing state: detect drift types from plan output
           if grep -q "No changes" plan.log; then
             echo "exit_code=0" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -64,7 +78,7 @@ jobs:
             echo "is_destroy=false" >> $GITHUB_OUTPUT
           fi
 
-          echo "Plan exit code (raw): $EXIT_CODE"
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
         continue-on-error: true
 
   drift-notification:
@@ -111,7 +125,7 @@ jobs:
     needs: [terraform-plan, approval-gate]
     runs-on: ubuntu-latest
 
-    # Auto-apply if no drift; if drift, apply only after approval (and not a pure destroy)
+    # Auto-apply if no drift; if drift, apply only after approval and not pure destroy
     if: |
       needs.terraform-plan.outputs.has_changes == 'false' ||
       (needs.terraform-plan.outputs.has_changes == 'true' &&
