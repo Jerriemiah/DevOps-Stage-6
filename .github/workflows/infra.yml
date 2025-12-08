@@ -76,6 +76,13 @@ jobs:
           fi
         continue-on-error: true
 
+      - name: Upload tfplan artifact
+        if: steps.tf_plan.outputs.has_changes == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: infra/terraform/tfplan
+
   drift-notification:
     name: '🚨 Drift Alert'
     needs: terraform-plan
@@ -114,7 +121,7 @@ jobs:
 
   terraform-apply:
     name: 'Terraform Apply'
-    needs: terraform-plan
+    needs: [terraform-plan, approval-gate]
     runs-on: ubuntu-latest
 
     # Auto-apply if no drift; if drift, apply only after approval and not pure destroy
@@ -149,6 +156,13 @@ jobs:
       - name: Terraform Init
         working-directory: infra/terraform
         run: terraform init -input=false
+
+      - name: Download tfplan artifact
+        if: needs.terraform-plan.outputs.has_changes == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: infra/terraform
 
       - name: Terraform Apply
         working-directory: infra/terraform
